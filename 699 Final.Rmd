@@ -1,0 +1,307 @@
+---
+title: "Final"
+author: "Min Qin"
+date: "7/31/2020"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(factoextra)    
+library(cluster)       
+library(dendextend)    
+library(corrplot)     
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+library(forcats)
+library(reshape2)
+library(finalfit)
+library(Hmisc)
+library(psych)
+library(car)
+library(caret)
+library(pROC)
+library(LogicReg)
+
+### Import the data into R
+categoryTree <- read.csv("/Users/minqin/Downloads/category_tree.csv", header = TRUE)
+events <- read.csv("/Users/minqin/Downloads/events.csv", header = TRUE)
+itemProp1 <- read.csv("/Users/minqin/Downloads/item_properties_part1.csv", header = TRUE)
+itemProp2 <- read.csv("/Users/minqin/Downloads/item_properties_part2.csv", header = TRUE)
+### Full join two item property tables
+itemProp <- full_join(itemProp1, itemProp2, by = NULL, copy = FALSE)
+
+```
+
+
+
+```{r A3Q1, echo=FALSE}
+## 1. Create Univariate analysis for the variable of your interest (your Y variable). Calculate skewness and kurtosis and describe the results.
+
+### Count of different kind of events
+str(events)
+eventCount <- table(events$event)
+### Plot the event type
+barplot(eventCount)
+```
+
+#### Since the event type (Y variable) is categorical, the skewness and kurtosis cannot be assessed. Based on the barplot output and frequency count, there are much more view of products, than add to cart action, than actual purchase of the merchant. 
+
+
+```{r A3Q2, echo=FALSE}
+## 2. Create Bivariate plot Box Plot for your Y variable and one of other important metrics (your X). Describe figure.
+
+ggplot(data = events, aes(x=event, y=itemid, fill=event)) + geom_boxplot() +
+  ggtitle("Item ID Dist for Each Event Type") +
+  xlab("Event Type")
+
+```
+
+#### My type of data does not show well on boxplot. So based on the graph, all items share similar distribution for three different types of transactions. 
+
+
+```{r A3Q3, echo=FALSE}
+## 3. If your variables are categorical - Create a bar plot. 
+
+# filter event type by addtocart only
+addCartOnly <- filter(events, event=="addtocart")
+itemAddCartCount <- as.data.frame(table(addCartOnly$itemid))
+colnames(itemAddCartCount) = c("itemid", "addFreq")
+# select 5 tops add to cart items and make bar plot
+x <- subset(itemAddCartCount, itemAddCartCount$addFreq >100)
+ggplot(x, aes(x = itemid, y = addFreq, fill = itemid)) + geom_bar(stat = "identity") + ggtitle("Top 5 Items Add to Cart") + xlab("Item ID")
+
+
+# filter event type by transaction only
+transOnly <- filter(events, event=="transaction")
+itemTransCount <- as.data.frame(table(transOnly$itemid))
+colnames(itemTransCount) = c("itemid", "transFreq")
+# select items purchased more than 40 times, and make a bar plot
+y <- subset(itemTransCount, itemTransCount$transFreq >40)
+ggplot(y, aes(x = itemid, y = transFreq, fill = itemid)) + geom_bar(stat = "identity") + ggtitle("Items Purchased More than 40 Times") + xlab("Item ID")
+
+
+# filter event type by view only
+viewOnly <- filter(events, event=="view")
+itemViewOnlyCount <- as.data.frame(table(viewOnly$itemid))
+colnames(itemViewOnlyCount) = c("itemid", "viewFreq")
+# select more than 1,500 views items and make bar plot
+z <- subset(itemViewOnlyCount, itemViewOnlyCount$viewFreq >1500)
+ggplot(z, aes(x = itemid, y = viewFreq, fill = itemid)) + geom_bar(stat = "identity") + ggtitle("Items Viewed More Than 1,500 Times") + xlab("Item ID")
+
+```
+
+#### Based on the graphs, we can see the most viewed, add to cart and purchased items. And we can see the frequency of each items as well. 
+
+
+```{r A3Q4, echo=FALSE}
+## 4. Create a multivariate plot - Use the same plot as in 3 but add another important variable using colored symbols. Describe Figure. Make sure to add legend.
+
+yx <- merge(y, itemAddCartCount, by="itemid", all.x = FALSE)
+yxz <- merge(yx, itemViewOnlyCount, by="itemid", all.x = FALSE)
+yxz2 = melt(yxz, id.vars = c("itemid"),
+                measure.vars = c("transFreq", "addFreq", "viewFreq"))
+yxz2 <- setNames(yxz2, c("itemid", "eventType", "result"))
+ggplot(yxz2, aes(x = itemid, y = result, fill = eventType)) + 
+  geom_bar(stat = "identity", position = 'dodge') +
+  ggtitle("Top Purchased Items Event Type Comparison") +
+  xlab("Item ID")+  
+  scale_color_manual(name = "Event Type", 
+                     labels = c("Transaction", 
+                                "Add To Cart",
+                                "View only"), 
+                     values = c("Transaction"="red", 
+                               "Add To Cart"="blue", 
+                               "View only"="green"))
+
+
+xy <- merge(x, itemTransCount, by="itemid", all.x = FALSE)
+xyz <- merge(xy, itemViewOnlyCount, by="itemid", all.x = FALSE)
+xyz2 = melt(xyz, id.vars = c("itemid"),
+                measure.vars = c("addFreq", "transFreq", "viewFreq"))
+xyz2 <- setNames(xyz2, c("itemid", "eventType", "result"))
+ggplot(xyz2, aes(x = itemid, y = result, fill = eventType)) + 
+  geom_bar(stat = "identity", position = 'dodge') +
+  ggtitle("Frequency of Other Events for Most Add to Cart Items") +
+  xlab("Item ID")+  
+  scale_color_manual(name = "Event Type", 
+                     labels = c("Transaction", 
+                                "Add To Cart",
+                                "View only"), 
+                     values = c("Transaction"="red", 
+                               "Add To Cart"="blue", 
+                               "View only"="green"))
+
+```
+
+#### Based on the first graph, for the top 7 purchased items, we can see that the more purchase of an item, it is more likely to be added to cart more and have more views as well. 
+#### Based on the second graph, for the top 5 most added to cart items, the more add to cart action doesn't necessarily mean the items have more views and will be more likely to be purchased. 
+
+
+```{r A4Q1, echo=FALSE}
+## 1. Describe missing data, provide summary of missing data, similar to the analysis in the Chapter 2 (table 3): Count of missing data/percent per variable, type of missing data (NA, null), total percent of missingness per dataset.
+
+sum(is.na(itemProp))
+sum(is.na(events))
+sum(is.na(categoryTree))
+
+(colMeans(is.na(itemProp)))*100
+(colMeans(is.na(events)))*100
+(colMeans(is.na(categoryTree)))*100
+
+events %>% missing_plot()
+categoryTree %>% missing_plot()
+
+```
+
+#### There is no missing data in item property data. There is 99% of missing data for transaction ID in events data, because only event type as transaction will have transaction ID, view and add to cart action won't have corresbonding transaction ID. There is only 1.5% of missing data in category tree data. 
+
+
+```{r A5Q1, echo=FALSE}
+## Step 1. Scale or normalize your data. Make sure to apply imputation if needed.
+
+table(events$event)
+
+```
+
+#### Since I have a pretty clean dataset, each entry has been categorized into different event type. So I cannot eliminate NA value otherwise, everything except transaction (which means product has been purchased instead of only viewed or added to cart) will be ignored. And I don't need to create another factor level for this data since event type is already a factor type, including view, addtocart and transaction. 
+
+#### Linear regression model or logistic regression does not really apply to my dataset and I don't plan to use this method in my research. Because I can't and not going to use regression model, so I don't have a summary and interpret table for this situation. 
+
+#### My dataset is will be used for train and test to observe and predict customer behavior, so this assignment does not really apply in my case. 
+
+
+```{r A6Q1, echo=FALSE}
+## Step 1 - Data Description 
+str(itemProp)
+str(events)
+
+```
+
+#### Item property dataset consists of 4 variables and 20 million observations. Events dataset consist of 5 variables and 2 million observations. Event types include view, add to cart and transaction. 
+
+
+```{r A6Q2, echo=FALSE}
+## Step 2 - Correlation Matrix 
+events2 <- events
+events2$event <- as.numeric(events2$event)
+events2_x <- subset(events2, select = -5)
+datamatrix1 <- cor(events2_x)
+corrplot(datamatrix1, order = "hclust", type = "upper", tl.srt = 45)
+
+res <- rcorr(as.matrix(events2_x), type = "pearson")
+res$r
+res$P
+corrplot(res$r, type = "upper", order = "hclust",
+         p.mat = res$P, sig.level = 0.01, insig = "blank")
+
+```
+
+#### None of the data is correlated as showing in the graphs. The only important thing to pay attention is the correlation between time and event, which also shows very low correlation. 
+
+
+```{r A6Q3, echo=FALSE}
+## Step 3 - KMO 
+KMO(r=datamatrix1)
+
+```
+
+#### Since overall MSA is 0.5 which is less than 0.6, this data is inadequate for factor analysis. 
+
+
+```{r A6Q6, echo=FALSE}
+## Step 6 - Regression
+events_lr = glm(events$event~., data = events, family = 'binomial')
+summary(events_lr)
+
+vif(events_lr)
+
+```
+
+#### Because the dataset is inadequate for factor analysis, so I did logistic regression. However, based on the p-value, all factors have very low correlation with event type. 
+
+
+```{r elbow method, echo=FALSE}
+## Find the optimal number of clusters (elbow, gap or silhouette methods) 
+### Elbow Method
+data <- events[1:100,1:4]
+
+dmatrix <- daisy(events[1:100,1:4])
+
+avg.totw.ss <- numeric(40)
+for (k in 1:40) {
+  totw.ss <- numeric(40)
+  for (trial in 1:40) {
+    runs <- kmeans(dmatrix, centers=k)
+    totw.ss[trial] <- runs$tot.withinss
+  }
+  avg.totw.ss[k-1] <- mean(totw.ss)
+}
+
+ggplot(aes(x,y), data=data.frame("x"=c(1:40), "y"=avg.totw.ss))+geom_line()+geom_point(size=2.5)+labs(x="Number of Clusters", y="Average Total Within Sum of Squares")+ggtitle("Fig. 1. Plot of TotW.SS by k in Clustering")+theme_classic()
+
+```
+
+#### The elbow method helps us determine the percentage of variance explained by k. The optimal k will be chosen when the change rate starts to drop. 
+
+
+#### K-means clustering is the method of vector quantization. It targets to partition numbers of observations into k clusters where each observation belongs to the cluster with the nearest mean. 
+
+
+```{r kmeans, echo=FALSE}
+
+for (k in 4:8) {
+  km <- kmeans(dmatrix, k)
+  data <- data.frame(data, km$cluster)
+}
+colnames(data)[5:9] <- c("km1","km2","km3","km4","km5")
+
+```
+
+#### Hierarchical cluster builds a hierarchy of clusters. There are 2 types of hierarchical clusters: Agglomerative and Divisive. Agglomerative is a "bottom-up" approach which each observation starts in its own cluster, and pairs of clusters are merged as one then move upwards alone the hierarchy. Divisive is a "top-down" approach where all observations start in one cluster then splits are performed recursively as each moves down alone the hierarchy. 
+
+
+```{r Hierarchical, echo=FALSE}
+
+hc <- hclust(dmatrix, method="ward.D2")
+for (k in 4:8) {
+  data <- data.frame(data, cutree(hc, k))
+}
+colnames(data)[10:14] <- c("hc1","hc2","hc3","hc4","hc5")
+
+```
+
+#### Result of applying different clustering methods is, k=4 is chosen as the number of clusters. This 2-d table compares the distribution of add to cart event, view event and transaction event in each cluster. 
+
+
+```{r results, echo=FALSE}
+
+table(data$km1, data$event)
+
+```
+
+
+
+```{r train & test, echo=FALSE}
+library(naivebayes)
+## Train and test data
+dfEvents <- data.matrix(events)
+dfEvents
+
+set.seed(1)
+row.number <- sample(1:nrow(events), 0.8*nrow(events))
+train <- events[row.number,]
+test <- events[-row.number,]
+dim(train)
+dim(test)
+
+model <- glm(event ~ timestamp+visitorid+itemid, data = train, family = binomial)
+
+result <- predict(model, test)
+table(test$event, result)
+
+
+
+```
